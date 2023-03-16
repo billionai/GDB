@@ -5740,13 +5740,26 @@ add_to_method_list (struct type *type, int fnfield_index, int index,
 		    const char *name, struct die_info *die,
 		    struct dwarf2_cu *cu)
 {
-  struct delayed_method_info mi;
-  mi.type = type;
-  mi.fnfield_index = fnfield_index;
-  mi.index = index;
-  mi.name = name;
-  mi.die = die;
-  cu->method_list.push_back (mi);
+  struct delayed_physname_info dpi;
+  dpi.type = type;
+  dpi.fnfield_index = fnfield_index;
+  dpi.index = index;
+  dpi.name = name;
+  dpi.die = die;
+  dpi.physname_type = DELAYED_PHYSNAME_METHOD;
+  cu->method_list.push_back (dpi);
+}
+
+static void
+add_delayed_function_physname (const char *name, struct die_info *die,
+			       struct symbol *sym, struct dwarf2_cu *cu)
+{
+  struct delayed_physname_info dpi;
+  dpi.name = name;
+  dpi.die = die;
+  dpi.sym = sym;
+  dpi.physname_type = DELAYED_PHYSNAME_GENERIC;
+  cu->method_list.push_back (dpi);
 }
 
 /* Check whether [PHYSNAME, PHYSNAME+LEN) ends with a modifier like
@@ -5780,34 +5793,46 @@ compute_delayed_physnames (struct dwarf2_cu *cu)
     return;
   gdb_assert (cu->lang () == language_cplus);
 
-  for (const delayed_method_info &mi : cu->method_list)
+  for (const delayed_physname_info &dpi : cu->method_list)
     {
-      const char *physname;
-      struct fn_fieldlist *fn_flp
-	= &TYPE_FN_FIELDLIST (mi.type, mi.fnfield_index);
-      physname = dwarf2_physname (mi.name, mi.die, cu);
-      TYPE_FN_FIELD_PHYSNAME (fn_flp->fn_fields, mi.index)
-	= physname ? physname : "";
+      const char *physname = dwarf2_physname (dpi.name, dpi.die, cu);
 
-      /* Since there's no tag to indicate whether a method is a
-	 const/volatile overload, extract that information out of the
-	 demangled name.  */
-      if (physname != NULL)
+      if (dpi.physname_type == DELAYED_PHYSNAME_METHOD)
 	{
-	  size_t len = strlen (physname);
+	  struct fn_fieldlist *fn_flp
+	    = &TYPE_FN_FIELDLIST (dpi.type, dpi.fnfield_index);
+	  TYPE_FN_FIELD_PHYSNAME (fn_flp->fn_fields, dpi.index)
+	    = physname ? physname : "";
 
-	  while (1)
+	  /* Since there's no tag to indicate whether a method is a
+	     const/volatile overload, extract that information out of the
+	     demangled name.  */
+	  if (physname != NULL)
 	    {
-	      if (physname[len] == ')') /* shortcut */
-		break;
-	      else if (check_modifier (physname, len, " const"))
-		TYPE_FN_FIELD_CONST (fn_flp->fn_fields, mi.index) = 1;
-	      else if (check_modifier (physname, len, " volatile"))
-		TYPE_FN_FIELD_VOLATILE (fn_flp->fn_fields, mi.index) = 1;
-	      else
-		break;
+	      size_t len = strlen (physname);
+
+	      while (1)
+		{
+		  if (physname[len] == ')') /* shortcut */
+		    break;
+		  else if (check_modifier (physname, len, " const"))
+		    TYPE_FN_FIELD_CONST (fn_flp->fn_fields, dpi.index) = 1;
+		  else if (check_modifier (physname, len, " volatile"))
+		    TYPE_FN_FIELD_VOLATILE (fn_flp->fn_fields, dpi.index) = 1;
+		  else
+		    break;
+		}
 	    }
 	}
+      else if (dpi.physname_type == DELAYED_PHYSNAME_GENERIC)
+	{
+	  /*  We dont have a linkage name for the symbol, and the physname
+	      that was stored may have typedefs in it, so we have to replace
+	      it.  */
+	  dpi.sym->set_linkage_name (physname);
+	}
+      else
+	gdb_assert_not_reached ();
     }
 
   /* The list is no longer needed.  */
@@ -18956,7 +18981,11 @@ new_symbol (struct die_info *die, struct type *type, struct dwarf2_cu *cu,
       const char *linkagename = dw2_linkage_name (die, cu);
 
       if (linkagename == nullptr || cu->lang () == language_ada)
-	sym->set_linkage_name (physname);
+	{
+	  sym->set_linkage_name (physname);
+	  if (cu->lang () == language_cplus)
+	    add_delayed_function_physname (name, die, sym, cu);
+	}
       else
 	{
 	  sym->set_demangled_name (physname, &objfile->objfile_obstack);

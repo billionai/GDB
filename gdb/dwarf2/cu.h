@@ -25,24 +25,43 @@
 #include "gdbsupport/gdb_optional.h"
 #include "language.h"
 
+enum delayed_physname_type
+{
+  DELAYED_PHYSNAME_GENERIC,
+  DELAYED_PHYSNAME_METHOD,
+};
+
 /* Type used for delaying computation of method physnames.
    See comments for compute_delayed_physnames.  */
-struct delayed_method_info
+struct delayed_physname_info
 {
-  /* The type to which the method is attached, i.e., its parent class.  */
-  struct type *type;
+  union
+  {
+    struct
+    {
+      /* The type to which the method is attached, i.e., its parent class.  */
+      struct type *type;
 
-  /* The index of the method in the type's function fieldlists.  */
-  int fnfield_index;
+      /* The index of the method in the type's function fieldlists.  */
+      int fnfield_index;
 
-  /* The index of the method in the fieldlist.  */
-  int index;
+      /* The index of the method in the fieldlist.  */
+      int index;
+    };
+
+    /*  If we're delaying a function name calculation, this is the symbol
+	associated with the function.  */
+    struct symbol* sym;
+  };
 
   /* The name of the DIE.  */
   const char *name;
 
   /*  The DIE associated with this method.  */
   struct die_info *die;
+
+  /*  Will the physname be for a method or a function.  */
+  delayed_physname_type physname_type;
 };
 
 /* Internal state when decoding a particular compilation unit.  */
@@ -171,7 +190,7 @@ public:
 
   /* A list of methods which need to have physnames computed
      after all type information has been read.  */
-  std::vector<delayed_method_info> method_list;
+  std::vector<delayed_physname_info> method_list;
 
   /* To be copied to symtab->call_site_htab.  */
   htab_t call_site_htab = nullptr;
