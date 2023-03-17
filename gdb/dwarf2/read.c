@@ -739,7 +739,10 @@ show_dwarf_max_cache_age (struct ui_file *file, int from_tty,
 	      value);
 }
 
+
 /* local function prototypes */
+static void
+compute_delayed_physnames (struct dwarf2_cu *cu);
 
 static void dwarf2_find_base_address (struct die_info *die,
 				      struct dwarf2_cu *cu);
@@ -876,6 +879,10 @@ static struct dwarf2_section_info *cu_debug_loc_section (struct dwarf2_cu *cu);
 /* Return the .debug_rnglists section to use for cu.  */
 static struct dwarf2_section_info *cu_debug_rnglists_section
   (struct dwarf2_cu *cu, dwarf_tag tag);
+
+static const char *dwarf2_compute_name
+  (const char *name, struct die_info *die, struct dwarf2_cu *cu,
+   int physname, int raw);
 
 /* How dwarf2_get_pc_bounds constructed its *LOWPC and *HIGHPC return
    values.  Keep the items ordered with increasing constraints compliance.  */
@@ -1720,6 +1727,7 @@ static void
 dw2_do_instantiate_symtab (dwarf2_per_cu_data *per_cu,
 			   dwarf2_per_objfile *per_objfile, bool skip_partial)
 {
+  std::set<dwarf2_cu *> cus_needing_finishing;
   {
     /* The destructor of dwarf2_queue_guard frees any entries left on
        the queue.  After this point we're guaranteed to leave this function
@@ -1730,6 +1738,8 @@ dw2_do_instantiate_symtab (dwarf2_per_cu_data *per_cu,
       {
 	queue_comp_unit (per_cu, per_objfile, language_minimal);
 	dwarf2_cu *cu = load_cu (per_cu, per_objfile, skip_partial);
+
+	  cus_needing_finishing.insert (cu);
 
 	/* If we just loaded a CU from a DWO, and we're working with an index
 	   that may badly handle TUs, load all the TUs in that DWO as well.
@@ -1746,6 +1756,8 @@ dw2_do_instantiate_symtab (dwarf2_per_cu_data *per_cu,
 
     process_queue (per_objfile);
   }
+  for (auto cu : cus_needing_finishing)
+    compute_delayed_physnames (cu);
 
   /* Age the cache, releasing compilation units that have not
      been used recently.  */
@@ -5741,6 +5753,7 @@ add_to_method_list (struct type *type, int fnfield_index, int index,
 		    struct dwarf2_cu *cu)
 {
   struct delayed_physname_info dpi;
+  gdb_assert(cu->lang() == language_cplus);
   dpi.type = type;
   dpi.fnfield_index = fnfield_index;
   dpi.index = index;
@@ -5755,6 +5768,7 @@ add_delayed_function_physname (const char *name, struct die_info *die,
 			       struct symbol *sym, struct dwarf2_cu *cu)
 {
   struct delayed_physname_info dpi;
+  gdb_assert(cu->lang() == language_cplus);
   dpi.name = name;
   dpi.die = die;
   dpi.sym = sym;
@@ -5791,14 +5805,14 @@ compute_delayed_physnames (struct dwarf2_cu *cu)
   /* Only C++ delays computing physnames.  */
   if (cu->method_list.empty ())
     return;
-  gdb_assert (cu->lang () == language_cplus);
 
   for (const delayed_physname_info &dpi : cu->method_list)
     {
-      const char *physname = dwarf2_physname (dpi.name, dpi.die, cu);
-
       if (dpi.physname_type == DELAYED_PHYSNAME_METHOD)
 	{
+	  gdb_assert(cu->lang () == language_cplus);
+	  const char *physname = dwarf2_physname (dpi.name, dpi.die, cu);
+
 	  struct fn_fieldlist *fn_flp
 	    = &TYPE_FN_FIELDLIST (dpi.type, dpi.fnfield_index);
 	  TYPE_FN_FIELD_PHYSNAME (fn_flp->fn_fields, dpi.index)
@@ -5826,10 +5840,11 @@ compute_delayed_physnames (struct dwarf2_cu *cu)
 	}
       else if (dpi.physname_type == DELAYED_PHYSNAME_GENERIC)
 	{
+	  const char *clean_name = dwarf2_compute_name(dpi.name, dpi.die, cu, 1, 0);
 	  /*  We dont have a linkage name for the symbol, and the physname
 	      that was stored may have typedefs in it, so we have to replace
 	      it.  */
-	  dpi.sym->set_linkage_name (physname);
+	  dpi.sym->set_linkage_name (clean_name);
 	}
       else
 	gdb_assert_not_reached ();
@@ -6431,11 +6446,6 @@ process_full_comp_unit (dwarf2_cu *cu, enum language pretend_language)
   if (cu->lang () == language_go)
     fixup_go_packaging (cu);
 
-  /* Now that we have processed all the DIEs in the CU, all the types
-     should be complete, and it should now be safe to compute all of the
-     physnames.  */
-  compute_delayed_physnames (cu);
-
   if (cu->lang () == language_rust)
     rust_union_quirks (cu);
 
@@ -6528,11 +6538,6 @@ process_full_type_unit (dwarf2_cu *cu,
   /* For now fudge the Go package.  */
   if (cu->lang () == language_go)
     fixup_go_packaging (cu);
-
-  /* Now that we have processed all the DIEs in the CU, all the types
-     should be complete, and it should now be safe to compute all of the
-     physnames.  */
-  compute_delayed_physnames (cu);
 
   if (cu->lang () == language_rust)
     rust_union_quirks (cu);
@@ -6877,13 +6882,16 @@ dw2_linkage_name (struct die_info *die, struct dwarf2_cu *cu)
    For Ada, return the DIE's linkage name rather than the fully qualified
    name.  PHYSNAME is ignored..
 
+   if RAW is 0, strips typedefs when computing names, otherwise prints the
+   types raw.
+
    The result is allocated on the objfile->per_bfd's obstack and
    canonicalized.  */
 
 static const char *
 dwarf2_compute_name (const char *name,
 		     struct die_info *die, struct dwarf2_cu *cu,
-		     int physname)
+		     int physname, int raw)
 {
   struct objfile *objfile = cu->per_objfile->objfile;
 
@@ -6922,6 +6930,19 @@ dwarf2_compute_name (const char *name,
       if (die_needs_namespace (die, cu))
 	{
 	  const char *prefix;
+	  struct type_print_options options;
+	  options = default_ptype_flags;
+	  options.raw = raw;
+	  std::unique_ptr<typedef_hash_table> table_holder;
+	  std::unique_ptr<ext_lang_type_printers> printer_holder;
+	  if (raw == 0)
+	    {
+	      table_holder.reset (new typedef_hash_table);
+	      options.global_typedefs = table_holder.get ();
+
+	      printer_holder.reset (new ext_lang_type_printers);
+	      options.global_printers = printer_holder.get ();
+	    }
 
 	  string_file buf;
 
@@ -6997,7 +7018,7 @@ dwarf2_compute_name (const char *name,
 		  if (child->tag == DW_TAG_template_type_param)
 		    {
 		      cu->language_defn->print_type (type, "", &buf, -1, 0,
-						     &type_print_raw_options);
+						     &options);
 		      continue;
 		    }
 
@@ -7068,7 +7089,7 @@ dwarf2_compute_name (const char *name,
 	      struct type *type = read_type_die (die, cu);
 
 	      c_type_print_args (type, &buf, 1, lang,
-				 &type_print_raw_options);
+				 &options);
 
 	      if (lang == language_cplus)
 		{
@@ -7115,7 +7136,7 @@ dwarf2_compute_name (const char *name,
 static const char *
 dwarf2_full_name (const char *name, struct die_info *die, struct dwarf2_cu *cu)
 {
-  return dwarf2_compute_name (name, die, cu, 0);
+  return dwarf2_compute_name (name, die, cu, 0, 1);
 }
 
 /* Construct a physname for the given DIE in CU.  NAME may either be
@@ -7135,7 +7156,7 @@ dwarf2_physname (const char *name, struct die_info *die, struct dwarf2_cu *cu)
   /* In this case dwarf2_compute_name is just a shortcut not building anything
      on its own.  */
   if (!die_needs_namespace (die, cu))
-    return dwarf2_compute_name (name, die, cu, 1);
+    return dwarf2_compute_name (name, die, cu, 1, 1);
 
   if (cu->lang () != language_rust)
     mangled = dw2_linkage_name (die, cu);
@@ -7173,7 +7194,7 @@ dwarf2_physname (const char *name, struct die_info *die, struct dwarf2_cu *cu)
 
   if (canon == NULL || check_physname)
     {
-      const char *physname = dwarf2_compute_name (name, die, cu, 1);
+      const char *physname = dwarf2_compute_name (name, die, cu, 1, 1);
 
       if (canon != NULL && strcmp (physname, canon) != 0)
 	{
@@ -16826,6 +16847,7 @@ cooked_index_functions::expand_symtabs_matching
   gdb_assert (lookup_name != nullptr || symbol_matcher == nullptr);
   if (lookup_name == nullptr)
     {
+      bool found = true;
       for (dwarf2_per_cu_data *per_cu
 	     : all_units_range (per_objfile->per_bfd))
 	{
@@ -16834,9 +16856,21 @@ cooked_index_functions::expand_symtabs_matching
 	  if (!dw2_expand_symtabs_matching_one (per_cu, per_objfile,
 						file_matcher,
 						expansion_notify))
-	    return false;
+	    {
+	      found = false;
+	      break;
+	    }
 	}
-      return true;
+      for (dwarf2_per_cu_data* per_cu
+	    : all_units_range (per_objfile->per_bfd))
+	{
+	  /* Now that we have processed all the DIEs in the CU, all the types
+	     should be complete, and it should now be safe to compute all of the
+	     physnames.  */
+	  if (per_objfile->get_cu (per_cu) != nullptr)
+	    compute_delayed_physnames (per_objfile->get_cu (per_cu));
+	}
+      return found;
     }
 
   lookup_name_info lookup_name_without_params
@@ -18983,7 +19017,7 @@ new_symbol (struct die_info *die, struct type *type, struct dwarf2_cu *cu,
       if (linkagename == nullptr || cu->lang () == language_ada)
 	{
 	  sym->set_linkage_name (physname);
-	  if (cu->lang () == language_cplus)
+	  if (cu->lang () == language_cplus && die->tag == DW_TAG_subprogram)
 	    add_delayed_function_physname (name, die, sym, cu);
 	}
       else

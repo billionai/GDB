@@ -947,6 +947,9 @@ struct type
     this->main_type->name = name;
   }
 
+  /* Allocates space on the owner's obstack, then set the type's name.  */
+  void alloc_and_set_name (const char* name);
+
   /* Note that if thistype is a TYPEDEF type, you have to call check_typedef.
      But check_typedef does set the TYPE_LENGTH of the TYPEDEF type,
      so you only have to call check_typedef once.  Since value::allocate

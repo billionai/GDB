@@ -113,6 +113,7 @@ private:
 };
 
 extern const struct type_print_options type_print_raw_options;
+extern struct type_print_options default_ptype_flags;
 
 /* A hash table holding typedef_field objects.  This is more
    complicated than an ordinary hash because it must also track the

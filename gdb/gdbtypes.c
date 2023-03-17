@@ -416,7 +416,11 @@ make_pointer_type (struct type *type, struct type **typeptr)
       chain->set_length (ntype->length ());
       chain = TYPE_CHAIN (chain);
     }
-
+  std::string s;
+  if (type->name () != nullptr)
+    s += type->name ();
+  s += "*";
+  ntype->alloc_and_set_name (s.c_str ());
   return ntype;
 }
 
@@ -2883,6 +2887,18 @@ resolve_dynamic_type (struct type *type,
     frame = *in_frame;
 
   return resolve_dynamic_type_internal (type, &pinfo, frame, 1);
+}
+
+/* See gdbtypes.h  */
+
+void
+type::alloc_and_set_name (const char * name)
+{
+  obstack *obstack = (is_objfile_owned ()
+		      ? &objfile_owner ()->objfile_obstack
+		      : gdbarch_obstack (arch_owner ()));
+
+  set_name (obstack_strdup (obstack, name));
 }
 
 /* See gdbtypes.h  */

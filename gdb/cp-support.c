@@ -512,14 +512,14 @@ replace_typedefs (struct demangle_parse_info *info,
 
 	      if (sym != NULL)
 		{
-		  struct type *otype = sym->type ();
-		  const char *new_name = (*finder) (otype, data);
+		  struct type *otype = check_typedef (sym->type ());
+		  string_file buffer;
 
-		  if (new_name != NULL)
+		  if (otype != sym->type ())
 		    {
 		      ret_comp->type = DEMANGLE_COMPONENT_NAME;
-		      ret_comp->u.s_name.s = new_name;
-		      ret_comp->u.s_name.len = strlen (new_name);
+		      ret_comp->u.s_name.s = otype->name ();
+		      ret_comp->u.s_name.len = strlen (otype->name ());
 		      return;
 		    }
 		}
