@@ -942,4 +942,6 @@ extern bool read_addrmap_from_aranges (dwarf2_per_objfile *per_objfile,
 				       dwarf2_section_info *section,
 				       addrmap *mutable_map);
 
+void finish_names();
+
 #endif /* DWARF2READ_H */

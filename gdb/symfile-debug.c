@@ -34,6 +34,7 @@
 #include "symfile.h"
 #include "block.h"
 #include "filenames.h"
+#include "dwarf2/read.h"
 
 /* We need to save a pointer to the real symbol functions.
    Plus, the debug versions are malloc'd because we have to NULL out the
@@ -297,6 +298,7 @@ objfile::lookup_symbol (block_enum kind, const char *name, domain_enum domain)
 					  ALL_DOMAIN))
 	break;
     }
+  finish_names();
 
   if (debug_symfile)
     gdb_printf (gdb_stdlog, "qf->lookup_symbol (...) = %s\n",

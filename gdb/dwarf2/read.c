@@ -737,6 +737,9 @@ show_dwarf_max_cache_age (struct ui_file *file, int from_tty,
 	      value);
 }
 
+
+std::set<struct symbol *> update_linkage_names;
+
 /* local function prototypes */
 
 static void dwarf2_find_base_address (struct die_info *die,
@@ -2219,6 +2222,7 @@ dwarf2_base_index_functions::expand_all_symtabs (struct objfile *objfile)
 	 partial CU will be read via DW_TAG_imported_unit anyway.  */
       dw2_instantiate_symtab (per_cu, per_objfile, true);
     }
+  finish_names();
 }
 
 
@@ -3351,6 +3355,19 @@ get_gdb_index_contents_from_cache_dwz (objfile *obj, dwz_file *dwz)
 }
 
 static quick_symbol_functions_up make_cooked_index_funcs ();
+
+void
+finish_names()
+{
+  for (auto sym: update_linkage_names)
+    {
+      gdb::unique_xmalloc_ptr<char> canonical
+	  = cp_canonicalize_string_no_typedefs (sym->linkage_name ());
+      if (canonical != nullptr)
+	sym->set_linkage_name (canonical.get ());
+    }
+  update_linkage_names.clear();
+}
 
 /* See dwarf2/public.h.  */
 
@@ -16724,6 +16741,7 @@ cooked_index_functions::expand_matching_symbols
       if (name_match (entry->canonical, lookup_name, nullptr))
 	dw2_instantiate_symtab (entry->per_cu, per_objfile, false);
     }
+  finish_names();
 }
 
 bool
@@ -16753,6 +16771,7 @@ cooked_index_functions::expand_symtabs_matching
   gdb_assert (lookup_name != nullptr || symbol_matcher == nullptr);
   if (lookup_name == nullptr)
     {
+      bool found = true;
       for (dwarf2_per_cu_data *per_cu
 	     : all_units_range (per_objfile->per_bfd))
 	{
@@ -16761,9 +16780,13 @@ cooked_index_functions::expand_symtabs_matching
 	  if (!dw2_expand_symtabs_matching_one (per_cu, per_objfile,
 						file_matcher,
 						expansion_notify))
-	    return false;
+	    {
+	      found = false;
+	      break;
+	    }
 	}
-      return true;
+      finish_names();
+      return found;
     }
 
   lookup_name_info lookup_name_without_params
@@ -18869,6 +18892,8 @@ new_symbol (struct die_info *die, struct type *type, struct dwarf2_cu *cu,
 	  sym->set_demangled_name (physname, &objfile->objfile_obstack);
 	  sym->set_linkage_name (linkagename);
 	}
+      if (linkagename == nullptr && cu->lang () == language_cplus)
+	update_linkage_names.insert (sym);
 
       /* Handle DW_AT_artificial.  */
       attr = dwarf2_attr (die, DW_AT_artificial, cu);
