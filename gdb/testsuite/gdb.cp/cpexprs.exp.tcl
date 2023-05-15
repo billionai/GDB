@@ -375,7 +375,7 @@ add {base::operator[]} \
     - \
     -
 add {base::operator new} \
-    {void *(unsigned long)} \
+    {void *(size_t)} \
     - \
     -
 add {base::operator delete} \
@@ -383,7 +383,7 @@ add {base::operator delete} \
     - \
     -
 add {base::operator new[]} \
-    {void *(unsigned long)} \
+    {void *(size_t)} \
     - \
     -
 add {base::operator delete[]} \

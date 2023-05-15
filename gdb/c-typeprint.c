@@ -544,7 +544,7 @@ c_type_print_args (struct type *type, struct ui_file *stream,
 	  stream->wrap_here (4);
 	}
 
-      param_type = check_typedef (type->field (i).type ());
+      param_type = type->field (i).type ();
 
       if (language == language_cplus && linkage_name)
 	{

@@ -29,13 +29,13 @@ gdb_test_no_output "set max-completions unlimited"
 
 test_gdb_complete_unique \
     "break get_v" \
-    "break get_value(object*)"
+    "break get_value(object_p)"
 
 test_gdb_complete_unique \
     "break gr" \
     "break grab_it(int_magic_t*)"
 
 test_gdb_complete_multiple "break " "get_som" "ething(" {
-    "get_something(char const*)"
-    "get_something(object*)"
+    "get_something(my_string_t)"
+    "get_something(object_p)"
 }

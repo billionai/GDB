@@ -191,9 +191,9 @@ with_timeout_factor 4 {
 }
 
 set f2_re \
-    "\{line=\"33\",name=\"f2\",type=\"float \\(float\\)\",description=\"float f2\\(float\\);\"\}"
+    "\{line=\"33\",name=\"f2\",type=\"float \\(another_float_t\\)\",description=\"float f2\\(another_float_t\\);\"\}"
 set f3_re \
-    "\{line=\"39\",name=\"f3\",type=\"int \\(int\\)\",description=\"int f3\\(int\\);\"\}"
+    "\{line=\"39\",name=\"f3\",type=\"int \\(another_int_t\\)\",description=\"int f3\\(another_int_t\\);\"\}"
 set f4_re \
     "\{line=\"36\",name=\"f4\",type=\"void \\(int \\*\\)\",description=\"void f4\\(int \\*\\);\"\}"
 
